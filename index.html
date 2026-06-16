@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生物学情管理平台</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+<div id="app">
+  <header class="header">
+    <div class="logo">🧬 生物智管</div>
+    <div class="header-actions">
+      <select v-model="currentClassId" @change="changeClass" class="class-selector">
+        <option v-for="cls in classes" :key="cls.id" :value="cls.id">{{ cls.name }}</option>
+      </select>
+    </div>
+  </header>
+  <nav class="nav-tabs">
+    <div class="nav-tab" :class="{active: view==='dashboard'}" @click="view='dashboard'">📊 首页</div>
+    <div class="nav-tab" :class="{active: view==='homework'}" @click="view='homework'">📝 作业</div>
+    <div class="nav-tab" :class="{active: view==='quick'}" @click="view='quick'">⚡ 快速录入</div>
+    <div class="nav-tab" :class="{active: view==='todos'}" @click="view='todos'">📋 待办</div>
+    <div class="nav-tab" :class="{active: view==='dictation'}" @click="view='dictation'">🗣️ 默写</div>
+  </nav>
+  <div class="container">
+    <div v-if="view==='dashboard'" class="view">
+      <div class="stat-row">
+        <div class="stat-card"><div class="stat-label">今日未交</div><div class="stat-number" style="color:#dc2626">{{ overview.today_missing }}</div></div>
+        <div class="stat-card"><div class="stat-label">今日没做</div><div class="stat-number" style="color:#ea580c">{{ overview.today_empty }}</div></div>
+        <div class="stat-card"><div class="stat-label">待订正</div><div class="stat-number" style="color:#ca8a04">{{ overview.pending_correct }}</div></div>
+        <div class="stat-card"><div class="stat-label">待重默</div><div class="stat-number" style="color:#7c3aed">{{ overview.pending_dictation }}</div></div>
+        <div class="stat-card"><div class="stat-label">超期未结</div><div class="stat-number" style="color:#dc2626">{{ overview.overdue_total }}</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">🔔 今日待办</div></div>
+        <div v-if="todayTodos.length===0" class="empty-state">今日无待办，一切正常！</div>
+        <div class="student-list" v-else>
+          <div class="student-item" v-for="item in todayTodos" :key="item.id" :class="getItemClass(item)">
+            <div class="student-info">
+              <div class="student-avatar" :style="{background: getAvatarColor(item.type)}">{{ item.student_name[0] }}</div>
+              <div class="student-meta">
+                <span class="name">{{ item.student_no }}号 {{ item.student_name }}</span>
+                <span class="detail">{{ item.source }} · {{ item.detail }}</span>
+                <span class="date-info">{{ item.type }} · 超期{{ item.overdue_days }}天</span>
+              </div>
+            </div>
+            <div class="student-tags">
+              <span class="badge" :class="getBadgeClass(item.type)">{{ item.type }}</span>
+              <button class="action-btn" @click="resolveTodo(item)">✓ 完结</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">⚠️ 风险学生</div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>学号</th><th>姓名</th><th>未交</th><th>没做</th><th>待订正</th><th>待重默</th><th>风险</th></tr></thead>
+            <tbody>
+              <tr v-for="s in riskStudents" :key="s.student_id">
+                <td>{{ s.student_no }}</td><td>{{ s.name }}</td><td>{{ s.total_missing }}</td><td>{{ s.total_empty }}</td><td>{{ s.pending_correct }}</td><td>{{ s.pending_dictation }}</td>
+                <td><span class="badge" :class="s.risk_level.includes('高风险')?'badge-red':'badge-yellow'">{{ s.risk_level }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div v-if="view==='homework'" class="view">
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">📝 作业提交登记</div><div class="card-subtitle">{{ currentClassName }} · {{ todayDate }}</div></div>
+          <button class="btn btn-primary" @click="createHomework" v-if="!todayHomework">+ 创建今日作业</button>
+        </div>
+        <div v-if="!todayHomework" class="empty-state"><div class="empty-state-icon">📝</div><div>今日尚未创建作业记录</div><button class="btn btn-primary" style="margin-top:12px" @click="createHomework">立即创建</button></div>
+        <div v-else>
+          <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;"><input v-model="homeworkTitle" class="form-input" style="flex:1" placeholder="作业名称"><button class="btn btn-primary" @click="saveHomeworkTitle">保存</button></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>学号</th><th>姓名</th><th>提交状态</th><th>批改评价</th><th>备注</th></tr></thead>
+              <tbody>
+                <tr v-for="d in todayHomework.details" :key="d.id" :style="getRowStyle(d)">
+                  <td>{{ d.student_no }}</td><td>{{ d.student_name }}</td>
+                  <td><select v-model="d.submit_status" @change="updateDetail(d)" class="status-select"><option value="已交">已交</option><option value="没交">没交</option><option value="没做">没做</option><option value="病假">病假</option></select></td>
+                  <td><select v-model="d.review_status" @change="updateDetail(d)" class="status-select"><option value="">-</option><option value="漏做需补">漏做需补</option><option value="需订正">需订正</option><option value="已订正">已订正</option><option value="抄袭嫌疑">抄袭嫌疑</option></select></td>
+                  <td><input v-model="d.review_note" @blur="updateDetail(d)" class="form-input" style="width:120px;font-size:13px" placeholder="备注"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-if="view==='quick'" class="view">
+      <div class="card">
+        <div class="card-header"><div class="card-title">⚡ 自然语言快速录入</div></div>
+        <div class="input-panel">
+          <textarea v-model="parseText" class="input-area" rows="4" placeholder="例如：&#10;840号没交，839号病假，835号没做&#10;或：840号漏做第3题，836号需订正"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+            <div class="input-hints">
+              <span class="hint-tag" @click="addHint('840号没交')">840号没交</span>
+              <span class="hint-tag" @click="addHint('839号病假')">839号病假</span>
+              <span class="hint-tag" @click="addHint('835号没做')">835号没做</span>
+              <span class="hint-tag" @click="addHint('840号漏做')">840号漏做</span>
+              <span class="hint-tag" @click="addHint('836号需订正')">836号需订正</span>
+            </div>
+            <button class="btn btn-primary" @click="doParse" :disabled="!parseText">解析并确认</button>
+          </div>
+        </div>
+        <div v-if="parseResult" class="parse-preview">
+          <div style="padding:10px 14px;background:#f8fafc;font-size:12px;color:#64748b;font-weight:600;">解析结果</div>
+          <div class="parse-row" v-for="(r,idx) in parseResult.success" :key="idx"><span class="parse-student">{{ r.student_no }}号 {{ r.student_name }}</span><span class="parse-status" :style="getParseStatusStyle(r.action)">{{ r.action }}</span><span class="parse-detail">{{ r.detail }}</span></div>
+          <div class="parse-row" v-for="(f,idx) in parseResult.failed" :key="'f'+idx" style="background:#fef2f2"><span style="color:#dc2626;font-size:13px">❌ {{ f }}</span></div>
+        </div>
+      </div>
+    </div>
+    <div v-if="view==='todos'" class="view">
+      <div class="card">
+        <div class="card-header"><div class="card-title">📋 待办追踪</div></div>
+        <div class="type-tabs">
+          <div class="type-tab" :class="{active: todoFilter==='all'}" @click="todoFilter='all'">全部</div>
+          <div class="type-tab" :class="{active: todoFilter==='待补交'}" @click="todoFilter='待补交'">待补交</div>
+          <div class="type-tab" :class="{active: todoFilter==='待订正'}" @click="todoFilter='待订正'">待订正</div>
+          <div class="type-tab" :class="{active: todoFilter==='待补做'}" @click="todoFilter='待补做'">待补做</div>
+          <div class="type-tab" :class="{active: todoFilter==='待重默'}" @click="todoFilter='待重默'">待重默</div>
+        </div>
+        <div v-for="group in groupedTodos" :key="group.name" class="date-group">
+          <div class="date-header"><span class="date-badge" :class="getGroupBadgeClass(group.name)">{{ group.name }}</span><span class="date-count">{{ group.items.length }}人</span></div>
+          <div class="student-list">
+            <div class="student-item" v-for="item in group.items" :key="item.id" :class="getItemClass(item)">
+              <div class="student-info">
+                <div class="student-avatar" :style="{background: getAvatarColor(item.type)}">{{ item.student_name[0] }}</div>
+                <div class="student-meta">
+                  <span class="name">{{ item.student_no }}号 {{ item.student_name }}</span>
+                  <span class="detail">{{ item.source }} · {{ item.detail }}</span>
+                  <span class="date-info" v-if="item.overdue_days>0">超期 {{ item.overdue_days }} 天</span>
+                </div>
+              </div>
+              <div class="student-tags">
+                <span class="badge" :class="getBadgeClass(item.type)">{{ item.type }}</span>
+                <button class="action-btn" @click="resolveTodo(item)">✓ 完结</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="filteredTodos.length===0" class="empty-state">该分类下无待办事项</div>
+      </div>
+    </div>
+    <div v-if="view==='dictation'" class="view">
+      <div class="card">
+        <div class="card-header"><div class="card-title">🗣️ 默写登记（只记需重默）</div><button class="btn btn-primary" @click="showDictationForm=true">+ 登记需重默</button></div>
+        <div v-if="showDictationForm" style="background:#f8fafc;padding:16px;border-radius:8px;margin-bottom:16px;">
+          <div class="form-group"><label class="form-label">日期</label><input type="date" v-model="dictationForm.date" class="form-input"></div>
+          <div class="form-group"><label class="form-label">默写内容</label><input v-model="dictationForm.title" class="form-input" placeholder="例如：细胞呼吸公式"></div>
+          <div class="form-group"><label class="form-label">需重默学生（每行一个：学号+错误内容）</label><textarea v-model="dictationForm.students" class="form-textarea" rows="5" placeholder="例如：&#10;840号：线粒体写成线绿体、有氧呼吸第三阶段&#10;835号：全部公式"></textarea></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn btn-ghost" @click="showDictationForm=false">取消</button><button class="btn btn-primary" @click="saveDictation">保存</button></div>
+        </div>
+        <div class="dictation-list">
+          <div class="dictation-item" v-for="d in dictations" :key="d.id">
+            <div class="dictation-header"><span class="dictation-title">{{ d.title }}</span><span class="dictation-date">{{ d.date }} · {{ d.class_name }}</span></div>
+            <div class="dictation-students">
+              <div class="dictation-student">
+                <span class="dictation-student-name">{{ d.student_no }}号 {{ d.student_name }}</span>
+                <span class="dictation-student-error">{{ d.error_content }}</span>
+                <span class="badge" :class="d.status==='待重默'?'badge-red':'badge-green'">{{ d.status }}</span>
+                <button v-if="d.status==='待重默'" class="action-btn" @click="resolveDictation(d)">✓ 已重默</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="dictations.length===0" class="empty-state">暂无待重默记录</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
